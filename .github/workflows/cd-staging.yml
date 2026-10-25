@@ -1,81 +1,129 @@
 name: CD Staging
 
 on:
-  push:
-    branches:
-      - develop
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: travela-staging
+  group: travela-staging-deploy
   cancel-in-progress: false
-
-env:
-  WORK_DIR: /home/ubuntu/devops/travela-master
 
 jobs:
   deploy:
     name: Deploy to Staging
     runs-on: ubuntu-latest
 
+    # Only allow manual deployment from develop.
+    if: github.ref == 'refs/heads/develop'
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f Dockerfile
+          test -f docker-compose.yml
+          test -f composer.json
+          test -f artisan
+          test -f nginx/site.conf
+
+          if [ -f .env ]; then
+            echo "ERROR: .env must not be committed to Git."
+            exit 1
+          fi
 
       - name: Configure SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_KEY_STAGING }}
-
-      - name: Trust VPS host
         env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY_STAGING }}
           SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+        shell: bash
         run: |
+          set -euo pipefail
+
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_HOST"
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Deploy to Staging VPS
+      - name: Check remote environment
         env:
           SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
           SSH_USER: ${{ secrets.SSH_USER_STAGING }}
-          DEPLOY_DIR: ${{ env.WORK_DIR }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          ssh "$SSH_USER@$SSH_HOST" \
-            "mkdir -p '$DEPLOY_DIR'"
+          test -n "$SSH_USER"
 
-          ssh "$SSH_USER@$SSH_HOST" "bash -se" <<EOF
+          ssh \
+            -i ~/.ssh/staging_key \
+            -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" \
+            'set -eu
+             test -d /home/ubuntu/devops/travela-master
+             test -f /home/ubuntu/devops/travela-master/.env
+             test -f /home/ubuntu/devops/travela-master/docker-compose.yml
+             command -v docker
+             docker compose version'
+
+      - name: Upload source to Staging
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+          SSH_USER: ${{ secrets.SSH_USER_STAGING }}
+        shell: bash
+        run: |
           set -euo pipefail
 
-          cd "$DEPLOY_DIR"
+          tar \
+            --exclude='./.git' \
+            --exclude='./.env' \
+            --exclude='./docker-compose.yml' \
+            --exclude='./vendor' \
+            --exclude='./node_modules' \
+            --exclude='./.github' \
+            -czf - . |
+          ssh \
+            -i ~/.ssh/staging_key \
+            -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" \
+            'tar -xzf - -C /home/ubuntu/devops/travela-master'
 
-          if [ ! -f .env ]; then
-            echo "ERROR: .env is missing on Staging VPS"
-            exit 1
-          fi
+      - name: Validate and deploy
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+          SSH_USER: ${{ secrets.SSH_USER_STAGING }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          if [ ! -f docker-compose.yml ]; then
-            echo "ERROR: docker-compose.yml is missing on Staging VPS"
-            exit 1
-          fi
+          ssh \
+            -i ~/.ssh/staging_key \
+            -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" \
+            'set -eu
+             cd /home/ubuntu/devops/travela-master
 
-          if [ ! -d .git ]; then
-            echo "ERROR: Git repository is not initialized in $DEPLOY_DIR"
-            echo "Initialize the repository and configure GitHub access first."
-            exit 1
-          fi
+             docker compose config --quiet
+             docker compose build app
+             docker compose up -d --remove-orphans
+             docker compose ps'
 
-          git fetch origin develop
-          git checkout develop
-          git reset --hard origin/develop
-
-          docker compose config --quiet
-          docker compose build app
-          docker compose up -d --remove-orphans
-
-          docker compose ps
-          EOF
+      - name: Remove temporary SSH key
+        if: always()
+        shell: bash
+        run: |
+          rm -f ~/.ssh/staging_key
