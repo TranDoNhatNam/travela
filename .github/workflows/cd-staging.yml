@@ -1,0 +1,129 @@
+name: CD Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: travela-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+
+    # Only allow manual deployment from develop.
+    if: github.ref == 'refs/heads/develop'
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f Dockerfile
+          test -f docker-compose.yml
+          test -f composer.json
+          test -f artisan
+          test -f nginx/site.conf
+
+          if [ -f .env ]; then
+            echo "ERROR: .env must not be committed to Git."
+            exit 1
+          fi
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY_STAGING }}
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_HOST"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Check remote environment
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+          SSH_USER: ${{ secrets.SSH_USER_STAGING }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "$SSH_USER"
+
+          ssh \
+            -i ~/.ssh/staging_key \
+            -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" \
+            'set -eu
+             test -d /home/ubuntu/devops/travela-master
+             test -f /home/ubuntu/devops/travela-master/.env
+             test -f /home/ubuntu/devops/travela-master/docker-compose.yml
+             command -v docker
+             docker compose version'
+
+      - name: Upload source to Staging
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+          SSH_USER: ${{ secrets.SSH_USER_STAGING }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tar \
+            --exclude='./.git' \
+            --exclude='./.env' \
+            --exclude='./docker-compose.yml' \
+            --exclude='./vendor' \
+            --exclude='./node_modules' \
+            --exclude='./.github' \
+            -czf - . |
+          ssh \
+            -i ~/.ssh/staging_key \
+            -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" \
+            'tar -xzf - -C /home/ubuntu/devops/travela-master'
+
+      - name: Validate and deploy
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+          SSH_USER: ${{ secrets.SSH_USER_STAGING }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i ~/.ssh/staging_key \
+            -o IdentitiesOnly=yes \
+            "$SSH_USER@$SSH_HOST" \
+            'set -eu
+             cd /home/ubuntu/devops/travela-master
+
+             docker compose config --quiet
+             docker compose build app
+             docker compose up -d --remove-orphans
+             docker compose ps'
+
+      - name: Remove temporary SSH key
+        if: always()
+        shell: bash
+        run: |
+          rm -f ~/.ssh/staging_key
