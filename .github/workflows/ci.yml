@@ -1,33 +1,32 @@
 name: CI
 
 on:
-    pull_request:
-        branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
 
 env:
-    SSH_SERVER: ${{ secrets.SSH_USER }}@${{ secrets.IP_SERVER_RUN }}
-    WORK_DIR: /home/ubuntu/devops/travela-master
-    COMPOSE_FILE_DIR: /home/ubuntu/devops
-    IMAGE_NAME: travela-master:latest
-    SERVICE_NAME: travela-master
+  SSH_SERVER: ${{ secrets.SSH_USER }}@${{ secrets.IP_SERVER_RUN }}
+  WORK_DIR: /home/ubuntu/devops/travela-master
+  COMPOSE_FILE_DIR: /home/ubuntu/devops
+  IMAGE_NAME: travela-master:latest
+  SERVICE_NAME: travela-master
 
 jobs:
-    ci:
-        runs-on: ubuntu-latest
+  ci:
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v7.0.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
 
-            - name: TruffleHog OSS
-              uses: trufflesecurity/trufflehog@v3.97.4
+      - name: TruffleHog OSS
+        uses: trufflesecurity/trufflehog@v3.97.4
 
-            - name: Check Dockerfile
-              run: test -f Dockerfile
+      - name: Check Dockerfile
+        run: test -f Dockerfile
 
-            - name: Run Unit Test
-              run: |
-                echo "Running unit test"
-                sleep 2
-                echo "Check Unit Test Done"
-          
+      - name: Run Unit Test
+        run: |
+          echo "Running unit test"
+          sleep 2
+          echo "Check Unit Test Done"
