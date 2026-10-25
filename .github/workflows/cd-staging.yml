@@ -1,0 +1,81 @@
+name: CD Staging
+
+on:
+  push:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: travela-staging
+  cancel-in-progress: false
+
+env:
+  WORK_DIR: /home/ubuntu/devops/travela-master
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY_STAGING }}
+
+      - name: Trust VPS host
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy to Staging VPS
+        env:
+          SSH_HOST: ${{ secrets.SSH_IP_STAGING }}
+          SSH_USER: ${{ secrets.SSH_USER_STAGING }}
+          DEPLOY_DIR: ${{ env.WORK_DIR }}
+        run: |
+          set -euo pipefail
+
+          ssh "$SSH_USER@$SSH_HOST" \
+            "mkdir -p '$DEPLOY_DIR'"
+
+          ssh "$SSH_USER@$SSH_HOST" "bash -se" <<EOF
+          set -euo pipefail
+
+          cd "$DEPLOY_DIR"
+
+          if [ ! -f .env ]; then
+            echo "ERROR: .env is missing on Staging VPS"
+            exit 1
+          fi
+
+          if [ ! -f docker-compose.yml ]; then
+            echo "ERROR: docker-compose.yml is missing on Staging VPS"
+            exit 1
+          fi
+
+          if [ ! -d .git ]; then
+            echo "ERROR: Git repository is not initialized in $DEPLOY_DIR"
+            echo "Initialize the repository and configure GitHub access first."
+            exit 1
+          fi
+
+          git fetch origin develop
+          git checkout develop
+          git reset --hard origin/develop
+
+          docker compose config --quiet
+          docker compose build app
+          docker compose up -d --remove-orphans
+
+          docker compose ps
+          EOF
