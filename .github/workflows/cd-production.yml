@@ -6,10 +6,10 @@ on:
 
 env:
   SSH_SERVER: ${{ secrets.SSH_USER_PRODUCTION }}@${{ secrets.SSH_IP_PRODUCTION }}
-  WORK_DIR: /home/ubuntu/devops/travela-master
-  COMPOSE_FILE_DIR: /home/ubuntu/devops
-  IMAGE_NAME: travela-master:latest
-  SERVICE_NAME: travela-master
+  WORK_DIR: /home/ubuntu/devops/travela
+  COMPOSE_FILE_DIR: /home/ubuntu/devops/travela
+  IMAGE_NAME: travela-app:latest
+  SERVICE_NAME: app
 
 jobs:
   check:

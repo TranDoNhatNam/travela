@@ -1,9 +1,9 @@
 services:
   app:
     image: travela-app:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    
+    ports:
+      - "127.0.0.1:9000:9000"
     restart: unless-stopped
     env_file:
       - .env
