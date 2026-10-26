@@ -6,10 +6,10 @@ on:
 
 env:
   SSH_SERVER: ${{ secrets.SSH_USER_STAGING }}@${{ secrets.SSH_IP_STAGING }}
-  WORK_DIR: /home/ubuntu/devops/travela-master
-  COMPOSE_FILE_DIR: /home/ubuntu/devops
-  IMAGE_NAME: travela-master:latest
-  SERVICE_NAME: travela-master
+  WORK_DIR: /home/ubuntu/devops/travela
+  COMPOSE_FILE_DIR: /home/ubuntu/devops/travela
+  IMAGE_NAME: travela:latest
+  SERVICE_NAME: travela
 
 jobs:
   check:
@@ -91,4 +91,4 @@ jobs:
 
               docker compose up -d --force-recreate $SERVICE_NAME
               docker image prune -f
-     
+          "
