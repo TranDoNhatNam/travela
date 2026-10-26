@@ -1,0 +1,94 @@
+name: cd staging
+
+on:
+    push:
+        branches: [develop] 
+
+env:
+    SSH_SERVER: ${{ secrets.SSH_USER_STAGING }}@${{ secrets.SSH_IP_STAGING }} 
+    WORK_DIR: /home/ubuntu/devops/travela
+    COMPOSE_FILE_DIR: /home/ubuntu/devops/travela
+    IMAGE_NAME: travela:latest
+    SERVICE_NAME: travela
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7.0.1
+
+            - name: webfactory/ssh-agent
+              uses: webfactory/ssh-agent@v0.10.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY_STAGING }}
+
+            - name: Trust host
+              run: ssh-keyscan -H ${{ secrets.SSH_IP_STAGING }} >> ~/.ssh/known_hosts
+
+            - name: Check Dockerfile
+              run: test -f Dockerfile
+
+            - name: Check env file
+              run: |
+                ssh $SSH_SERVER "
+                    set -e
+                    cd $WORK_DIR
+                    test -f .env
+                "
+
+            - name: Check docker compose file
+              run: |
+                ssh $SSH_SERVER "
+                    set -e
+                    cd $COMPOSE_FILE_DIR
+                    test -f docker-compose.yml
+                "
+
+    build:
+        needs: [check]
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7.0.1
+
+            - name: webfactory/ssh-agent
+              uses: webfactory/ssh-agent@v0.10.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY_STAGING }}
+
+            - name: Trust host
+              run: ssh-keyscan -H ${{ secrets.SSH_IP_STAGING }} >> ~/.ssh/known_hosts
+
+            - name: Docker build image
+              run: docker build -t $IMAGE_NAME .
+
+            - name: Move Image To Server
+              run:  docker save $IMAGE_NAME | gzip | ssh $SSH_SERVER "gunzip | docker load"
+
+    deploy:
+        needs: [check, build]
+
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: webfactory/ssh-agent
+              uses: webfactory/ssh-agent@v0.10.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY_STAGING }}
+
+            - name: Trust host
+              run: ssh-keyscan -H ${{ secrets.SSH_IP_STAGING }} >> ~/.ssh/known_hosts
+
+            - name: Deploy
+              run: |
+                ssh $SSH_SERVER "
+                    set -e
+
+                    cd $COMPOSE_FILE_DIR
+
+                    docker compose up -d --force-recreate $SERVICE_NAME
+                    docker image prune -f
+                "
