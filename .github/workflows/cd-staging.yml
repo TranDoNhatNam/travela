@@ -8,7 +8,7 @@ env:
   SSH_SERVER: ${{ secrets.SSH_USER_STAGING }}@${{ secrets.SSH_IP_STAGING }}
   WORK_DIR: /home/ubuntu/devops/travela
   COMPOSE_FILE_DIR: /home/ubuntu/devops/travela
-  IMAGE_NAME: app:latest
+  IMAGE_NAME: travela-app:latest
   SERVICE_NAME: app
 
 jobs:
